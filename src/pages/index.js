@@ -1,83 +1,339 @@
 
-import React from "react"
-import { useQuery, useMutation } from "@apollo/client";
-import gql from "graphql-tag";
+import React from 'react';
+import { makeStyles, Theme, createStyles } from '@material-ui/core/styles';
+import * as Yup from 'yup';
+import { useQuery, useMutation } from '@apollo/client';
+import gql from 'graphql-tag'
+import {
+    Grid, List, ListItem,
+    ListItemText, ListItemSecondaryAction,
+    IconButton, Modal, CircularProgress,
+    Button, TextField
+} from '@material-ui/core';
+import { Formik, Form, Field, ErrorMessage } from 'formik';
+import CreateOutlinedIcon from '@material-ui/icons/CreateOutlined';
+import DeleteIcon from '@material-ui/icons/Delete';
 
-const BookMarksQuery = gql`{
-  bookmarks{
-    url
-    pageTitle
-    description
-  }
-}`
 
-const AddBookMarkMutation = gql`
-  mutation addBookmark($url: String!, $pageTitle: String!, $description: String){
-    addBookmark(url: $url, pageTitle: $pageTitle, description: $description){
-     url 
-    }
-}`
 
-export default function Home() {
-  const { loading, error, data } = useQuery(BookMarksQuery)
-  const [addBookmark] = useMutation(AddBookMarkMutation)
-  console.log(data);
-  let url, title, desc;
+const useStyles = makeStyles((theme) =>
+    createStyles({
+        root: {
+            width: '100%',
+            textAlign: 'center',
+        },
+        parent: {
+            textAlign: 'center'
+        },
+        dataDisplay: {
+            backgroundColor: '#eeeeee',
+            marginBottom: '10px'
+        },
+        textField: {
+            width: '100%',
+            textAlign: 'center',
+        },
+        paper: {
+            position: 'absolute',
+            width: 400,
+            backgroundColor: theme.palette.background.paper,
+            border: '2px solid #000',
+            boxShadow: theme.shadows[5],
+            padding: theme.spacing(2, 4, 3),
+        },
+    }),
+);
 
-  const addBookmarkSubmit = () => {
-    addBookmark({
-      variables: {
-        url: url.value,
-        pageTitle: title.value,
-        description: desc.value
-      },
-      refetchQueries: [{ query: BookMarksQuery }],
-    })
-  }
 
-  if (loading) {
-    return <p>Loading..</p>
-  } else if (error) {
-    return <p>{error}</p>
-  }
-  else {
-    return (
-      <>
-
-        <div className="jumbotron">
-          <h1 className="display-3">One Day!</h1>
-          <p className="lead">I will read/watch everything I saved here.</p>
-          <hr className="my-4" />
-          <p>This app is developed using Gatsby, Netlify and FaunaDB</p>
-          <p>View the source code on <a href="https://github.com/usamasubhani/oneday">Github</a>. Connect with me on <a href="https://twitter.com/basedusama">Twitter</a>.</p>
-        </div>
-        <div className="container">
-          <div className="container">
-            <form>
-              <label>URL</label>
-              <input type="text" className="form-control" id="url" ref={node => url = node} />
-              <label>Title</label>
-              <input type="text" className="form-control" id="title" ref={node => title = node} />
-              <label>Description</label>
-              <input type="text" className="form-control" id="description" ref={node => desc = node} />
-              <button className="btn btn-primary mt-2" onClick={addBookmarkSubmit}>Add</button>
-            </form>
-          </div>
-
-          {data.bookmarks.map((bookmark) => {
-            return (<>
-              <div className="col-sm-12">
-                <div className="card border-secondary min-vh-500 m-3 p-3">
-                  <h5 className="card-title">{bookmark.pageTitle}</h5>
-                  <h6 className="card-subtitle mb-2 text-muted">{bookmark.description}</h6>
-                  <a href={bookmark.url} className="card-text">{bookmark.url}</a>
-                </div>
-              </div>
-            </>)
-          })}
-
-        </div>
-      </>
-    )
+const getWebsites = gql`
+{
+    websites{
+        id
+        name
+        link
   }
 }
+`
+
+const addWebsite = gql`
+    mutation CreateABookmark($name:String,$link:String){
+        addWebsite(name:$name,link:$link){
+            id
+            name
+            link
+        }
+    }
+`
+
+const updateWebsite = gql`
+    mutation UpdateBookmark($id:String,$name:String,$link:String){
+        updateWebsite(id:$id,name:$name,link:$link){
+            name
+            link
+        }
+    }
+`
+
+const deleteWebsite=gql`
+    mutation DeleteBookmark($id:String){
+        deleteWebsite(id:$id){
+            name
+        }
+    }
+`
+
+
+function rand() {
+    return Math.round(Math.random() * 20) - 10;
+}
+
+function getModalStyle() {
+    const top = 50 + rand();
+    const left = 50 + rand();
+
+    return {
+        top: `${top}%`,
+        left: `${left}%`,
+        transform: `translate(-${top}%, -${left}%)`,
+        alignItems: "center", justifyContent: "center" 
+    };
+}
+
+
+const schema = Yup.object({
+    name: Yup.string()
+        .required("Add a Name")
+        .min(3, 'Must be greater than or equals to 3 characters'),
+    link: Yup.string()
+        .matches(
+            /((https):\/\/)(www.)?[a-z0-9]+(\.[a-z]{2,}){1,3}(#?\/?[a-zA-Z0-9#]+)*\/?(\?[a-zA-Z0-9-_]+=[a-zA-Z0-9-%]+&?)?$/,
+            'Enter correct url! https://www.name.domain'
+        )
+        .required('Please enter website'),
+})
+
+
+const Websites = () => {
+    const classes = useStyles();
+    const { loading, error, data } = useQuery(getWebsites);
+    const [addWeb] = useMutation(addWebsite);
+    const [updateWeb] = useMutation(updateWebsite);
+    const [deleteWeb] = useMutation(deleteWebsite);
+    const [open, setOpen] = React.useState(false);
+    const [currentId, setCurrentId] = React.useState(null);
+    const [currentName, setCurrentName] = React.useState(null);
+    const [currentLink, setCurrentLink] = React.useState(null);
+    
+
+    const [modalStyle] = React.useState(getModalStyle);
+
+
+    const handleOpen = () => {
+        setOpen(true);
+    };
+
+    const handleClose = () => {
+        setOpen(false);
+    };
+
+    return (
+        <div>
+            <div>
+                <div>
+                    <Formik
+                        initialValues={{ name: "", link: "https://www." }}
+                        validationSchema={schema}
+                        onSubmit={(value, { resetForm }) => {
+                            console.log('name', value.name)
+                            console.log('link', value.link)
+
+                            addWeb({ variables: { name: value.name, link: value.link }, refetchQueries: [{ query: getWebsites }] })
+
+                            resetForm();
+                            setCurrentId(null);
+                            setCurrentName("")
+                            setCurrentLink("");
+                        }}>
+
+                        {(formik) => (
+                            <Form onSubmit={formik.handleSubmit}>
+                                <Grid container justify="center">
+                                    <Grid item xs={12} sm={6}>
+                                        <div>
+                                            <Field
+                                                type='name'
+                                                as={TextField}
+                                                variant="outlined"
+                                                label="Website Name"
+                                                name="name"
+                                                id="name"
+                                                className={classes.textField}
+                                            />
+                                            <br />
+                                            <ErrorMessage name='name' render={(msg) => (
+                                                <span style={{ color: "red", fontSize: '18sp' }}>{msg}</span>
+                                            )} />
+                                            <br />
+                                        </div>
+                                        <div>
+                                            <Field
+                                                type='link'
+                                                as={TextField}
+                                                variant="outlined"
+                                                label="Website URL"
+                                                name="link"
+                                                id="link"
+                                                className={classes.textField}
+                                            />
+                                            <br />
+                                            <ErrorMessage name='link' render={(msg ) => (
+                                                <span style={{ color: "red", fontSize: '18sp' }}>{msg}</span>
+                                            )} />
+                                            <br />
+                                        </div>
+
+                                        <div>
+                                            <Button variant="contained" color="primary" type="submit" className={classes.textField} >
+                                                Add a Bookmark
+                                        </Button>
+                                        </div>
+                                    </Grid>
+                                </Grid>
+                            </Form>
+                        )}
+
+                    </Formik>
+                </div>
+            </div>
+            <div>
+                {loading && <CircularProgress />}
+                {data &&
+                    <Grid container justify="center">
+                        <Grid item xs={12} sm={6}>
+                            {
+                                <List>
+                                    {data.websites.map(web => (
+                                        <ListItem key={web.id} className={classes.dataDisplay}>
+                                            <ListItemText
+                                                primary={web.name}
+                                                secondary={
+                                                    <React.Fragment>
+                                                        <a href={web.link} target="_blank">{web.link}</a>
+                                                    </React.Fragment>
+                                                }
+                                            />
+                                            <ListItemSecondaryAction>
+                                                <Modal
+                                                    open={open}
+                                                    onClose={handleClose}
+                                                    aria-labelledby="simple-modal-title"
+                                                    aria-describedby="simple-modal-description"
+                                                >
+                                                    <div style={modalStyle} className={classes.paper}>
+                                                        <Formik
+                                                            initialValues={{ name: currentName, link: currentLink }}
+                                                            validationSchema={schema}
+                                                            onSubmit={(value, { resetForm }) => {
+                                                                console.log('name', value.name)
+                                                                console.log('link', value.link)
+                                                                updateWeb({
+                                                                    variables: {
+                                                                        id: currentId,
+                                                                        name: value.name,
+                                                                        link: value.link
+                                                                    },
+                                                                    refetchQueries: [{ query: getWebsites }]
+                                                                })
+                                                                resetForm();
+                                                                handleClose();
+                                                                
+                                                            }}>
+
+                                                            {(formik) => (
+                                                                <Form onSubmit={formik.handleSubmit}>
+                                                                    <Grid container justify="center">
+                                                                        <Grid item xs={12}>
+                                                                            <div>
+                                                                                <Field
+                                                                                    type='name'
+                                                                                    as={TextField}
+                                                                                    variant="outlined"
+                                                                                    label="Website Name"
+                                                                                    name="name"
+                                                                                    id="name"
+                                                                                    className={classes.textField}
+                                                                                />
+                                                                                <br />
+                                                                                <ErrorMessage name='name' render={(msg) => (
+                                                                                    <span style={{ color: "red", fontSize: '18sp' }}>{msg}</span>
+                                                                                )} />
+                                                                                <br />
+                                                                            </div>
+                                                                            <div>
+                                                                                <Field
+                                                                                    type='link'
+                                                                                    as={TextField}
+                                                                                    variant="outlined"
+                                                                                    label="Website URL"
+                                                                                    name="link"
+                                                                                    id="link"
+                                                                                    className={classes.textField}
+                                                                                />
+                                                                                <br />
+                                                                                <ErrorMessage name='link' render={(msg) => (
+                                                                                    <span style={{ color: "red", fontSize: '18sp' }}>{msg}</span>
+                                                                                )} />
+                                                                                <br />
+                                                                            </div>
+
+                                                                            <div>
+                                                                                <Button variant="contained" color="primary" type="submit" className={classes.textField} >
+                                                                                    Update Bookmark
+                                                                                </Button>
+                                                                            </div>
+                                                                        </Grid>
+                                                                    </Grid>
+                                                                </Form>
+                                                            )}
+
+                                                        </Formik>
+                                                    </div>
+                                                </Modal>
+                                                <IconButton edge="end" aria-label="update" onClick={() => {
+                                                    console.log('Update Button', web.id);
+                                                    setCurrentId(web.id)
+                                                    setCurrentName(web.name)
+                                                    setCurrentLink(web.link)
+                                                    handleOpen()
+                                                }}>
+                                                    <CreateOutlinedIcon />
+                                                </IconButton>
+                                                <IconButton edge="end" aria-label="delete" onClick={async () => {
+                                                    deleteWeb({
+                                                        variables:{
+                                                            id:web.id
+                                                        },
+                                                        refetchQueries: [{ query: getWebsites }],
+                                                    })
+                                                   
+                                                }}>
+                                                    <DeleteIcon />
+                                                </IconButton>
+                                            </ListItemSecondaryAction>
+
+                                        </ListItem>
+                                    ))}
+                                </List>
+                            }
+                        </Grid>
+                    </Grid>
+                }
+                {error && <p>Error fetching data</p>}
+            </div>
+
+        </div>
+
+    );
+}
+
+export default Websites;
